@@ -1,0 +1,4 @@
+{
+    "name": "CTFd Manual Challenge Plugin",
+    "route": "/manual/grade"
+}
