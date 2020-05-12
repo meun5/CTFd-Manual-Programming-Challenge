@@ -165,6 +165,87 @@ class Pending(Submissions):
     __mapper_args__ = {"polymorphic_identity": "pending"}
 
 
+@manual.route("/manual/grade", methods=['GET'])
+@admins_only
+def manual_list_to_grade():
+    Model = get_model()
+
+    submissions = (
+        Pending.query.add_columns(
+            Pending.id,
+            Pending.type,
+            Pending.challenge_id,
+            Pending.provided,
+            Pending.account_id,
+            Pending.date,
+            Challenges.name.label("challenge_name"),
+            Model.name.label("team_name"),
+        )
+            .join(Challenges)
+            .join(Model)
+            .order_by(Pending.date.desc())
+    ).all()
+
+    return render_template('submissions.html', submissions=submissions)
+
+
+@manual.route("/manual/submissions/<id>", methods=["GET"])
+def manual_get_submissions(id):
+    # {
+    #   "data": {
+    #       "correct": [],
+    #       "pending": [
+    #           {
+    #               "date": "2020-05-12T04:05:39.437160Z",
+    #               "provided": "WASD"
+    #           }
+    #       ]
+    #   },
+    #   "success": true
+    # }
+    team = get_current_team()
+    user = get_current_user()
+
+    pending = Pending.query.filter_by(
+        team_id=team.id if team else None,
+        user_id=user.id,
+        challenge_id=id,
+    ).with_entities(Pending.date, Pending.provided).all()
+
+    correct = Solves.query.filter_by(
+        team_id=team.id if team else None,
+        user_id=user.id,
+        challenge_id=id,
+    ).with_entities(Solves.date, Solves.provided).all()
+
+    return jsonify({"success": True, "data": {"correct": correct, "pending": pending}})
+
+
+@manual.route("/manual/approve/<id>", methods=["GET"])
+@admins_only
+def manual_approve(id):
+    submission = Pending.query.filter_by(id=id).first()
+
+    submission.type = 'correct'
+
+    solve = Solves(
+        user_id=submission.user_id,
+        team_id=submission.team_id if submission.team_id else None,
+        challenge_id=submission.challenge_id,
+        ip=submission.ip,
+        provided=submission.provided,
+    )
+
+    db.session.add(solve)
+
+    db.session.delete(submission)
+
+    db.session.commit()
+    db.session.close()
+
+    return redirect(url_for('.manual_list_to_grade'))
+
+
 def load(app):
     app.db.create_all()
     CHALLENGE_CLASSES["manual"] = ManualGradingChallenge
